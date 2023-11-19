@@ -1,0 +1,326 @@
+---
+title: "Produtividade"
+author: "Ana Carolina Murad Lima"
+date: "2023-06-27"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Bibliotecas
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(stats)
+```
+
+```{r}
+# Leitura e tratamento dos dados
+dados <- read_excel("Produtividade ok.xlsx")
+
+# Ordenar o dataframe por quatro colunas diferentes
+dados <- with(dados, dados[order(CICLO, BLOCO, EFLUENTE, INOCULO), ])
+
+# Converter as colunas para tipo numérico e arredondar valores em duas casas
+dados[5] =  round(dados[5], digits = 2)
+str(dados)
+```
+
+```{r}
+# Transformar as colunas em variáveis categóricas
+dados$BLOCO <- factor(dados$BLOCO)
+dados$CICLO <- factor(dados$CICLO)
+dados$INOCULO <- factor(dados$INOCULO)
+dados$EFLUENTE <- factor(dados$EFLUENTE)
+```
+
+```{r}
+# Níveis para cada fator de tratamentos
+library(dae)
+n.F <- 2
+n.D <- 5
+n.Bloco <- 4
+tr <- data.frame(cbind(INOCULO = paste("I", rep(1:n.F, each = n.D, times =
+                                                  n.Bloco),
+                                       sep = ""),
+                       EFLUENTE = paste("E", rep(1:n.D, times = n.F*n.Bloco),
+                                        sep = "")))
+units <- list(Bloco = n.Bloco,
+              Parcela = (n.F*n.D))
+nest <- list(Parcela = "Bloco")
+(lay <- designRandomize(allocated = tr,
+                        recipient = units,
+                        nested.recipients = nest,
+                        seed = 9719532))
+
+table(lay$I)
+table(lay$E)
+
+lay$Tratamento <- factor(paste(lay$I, lay$E, sep = ":"))
+print(lay$Tratamento)
+```
+
+```{r}
+# Mudar o nome da variável de interesse
+dados_1 = dados[c(1:5)]
+colnames(dados_1)[5] = "kg_ha"
+
+# Estrutura dos dados
+"dados_1"
+str(dados_1)
+```
+
+```{r}
+# Gráficos com os boxplots para cada combinação de todos os fatores
+ggplot(dados_1, aes(x = factor(EFLUENTE), y = kg_ha)) +
+  geom_boxplot() +
+  facet_grid(INOCULO ~ CICLO) +
+  labs(x = "EFLUENTE", y = "Kg por Há") +
+  ggtitle("Boxplots por combinação dos fatores")
+```
+
+```{r}
+# Calcular os limites inferiores de outliers para cada combinação de fatores
+limites_outliers <- aggregate(kg_ha ~ EFLUENTE + INOCULO + CICLO, 
+                              data = dados_1, FUN = function(x) {
+  q <- quantile(x, c(0.25, 0.75), na.rm = TRUE)
+  iqr <- q[2] - q[1]
+  limite_inferior <- q[1] - 1.5 * iqr
+})
+
+# Armazenar vetor com os limites inferiores
+lim_inf = limites_outliers$kg_ha
+
+# Calcular os limites superiores de outliers para cada combinação de fatores
+limites_outliers <- aggregate(kg_ha ~ EFLUENTE + INOCULO + CICLO, 
+                              data = dados_1, FUN = function(x) {
+  q <- quantile(x, c(0.25, 0.75), na.rm = TRUE)
+  iqr <- q[2] - q[1]
+  limite_superior <- q[2] + 1.5 * iqr
+})
+
+# Armazenar vetor com os limites superiores
+lim_sup = limites_outliers$kg_ha
+
+# Montar Dataframe com os limites inferior e superior
+limites_outliers = limites_outliers[c(1:3)]
+limites_outliers$LIM_INF = lim_inf
+limites_outliers$LIM_SUP = lim_sup
+
+# Replicar cada linha por 4 vezes
+limites_outliers <- limites_outliers[rep(row.names(limites_outliers), 
+                                         each = 4), ]
+
+# Redefinir os índices das linhas
+rownames(limites_outliers) <- NULL
+
+# Reordenar os dados do tempo 1 seguindo a combinação de fatores por cada bloco
+blocos_dados_1 <- with(dados_1, 
+                             dados_1[order(CICLO, INOCULO, EFLUENTE), ])
+
+# Definir como NA (valor ausente) os outliers
+blocos_dados_1$kg_ha[which(blocos_dados_1$kg_ha < 
+                                    limites_outliers$LIM_INF)] = NA
+blocos_dados_1$kg_ha[which(blocos_dados_1$kg_ha > 
+                                    limites_outliers$LIM_SUP)] = NA
+
+# Calcular a média para cada grupo de 4 linhas
+media_blocos_1 = aggregate(kg_ha ~ EFLUENTE + INOCULO + CICLO, 
+                                 data = blocos_dados_1, FUN = mean)
+
+# Replicar cada linha por 4 vezes
+media_blocos_1 = media_blocos_1[rep(row.names(media_blocos_1), 
+                                                each = 4), ]
+
+# Redefinir os índices das linhas
+rownames(media_blocos_1) <- NULL
+
+# Preencher os NA's com as médias dos 4 blocos para a 
+# combinação de fatores específica
+blocos_dados_1$kg_ha[which(is.na(blocos_dados_1$kg_ha))] =
+  media_blocos_1$kg_ha[which(is.na(blocos_dados_1$kg_ha))]
+```
+
+
+```{r}
+# Análises Descritivas
+str(blocos_dados_1)
+summary(blocos_dados_1)
+
+# Número de observações
+with(blocos_dados_1, tapply(kg_ha, list(EFLUENTE, INOCULO), length))
+with(blocos_dados_1, tapply(kg_ha, list(EFLUENTE, INOCULO), sum))
+with(blocos_dados_1, tapply(kg_ha, list(EFLUENTE, INOCULO), mean))
+with(blocos_dados_1, tapply(kg_ha, list(EFLUENTE, INOCULO), var))
+with(blocos_dados_1, tapply(kg_ha, list(EFLUENTE, INOCULO), sd))
+
+# Tamanho das Médias
+T.medias <- with(blocos_dados_1,
+                 model.tables(aov(kg_ha ~ CICLO + BLOCO + EFLUENTE + INOCULO +
+                                    CICLO:EFLUENTE:INOCULO + CICLO:EFLUENTE +
+                                    CICLO:INOCULO + EFLUENTE:INOCULO),
+                              "means"))
+T.medias
+```
+
+```{r}
+# Media dos blocos para fazer os testes de Normalidade e Homocedasticidade
+media_blocos_1 = aggregate(kg_ha ~ EFLUENTE + INOCULO + CICLO, 
+                                 data = blocos_dados_1, FUN = mean)
+
+# Realizar o teste Shapiro-Wilk no conjunto de dados completo
+resultado_shapiro <- shapiro.test(media_blocos_1$kg_ha)$p.value
+
+# Exibir o resultado do teste Shapiro-Wilk
+print(resultado_shapiro)
+
+# Interpretação do p-valor
+if (resultado_shapiro > 0.05) {
+  print("Os dados seguem uma distribuição normal.")
+} else {
+  print("Os dados não seguem uma distribuição normal.")
+}
+```
+
+```{r}
+# Realizar o teste de Bartlett no conjunto de dados completo
+resultado_bartlett <- bartlett.test(media_blocos_1$kg_ha, 
+                                    media_blocos_1$EFLUENTE, 
+                                    media_blocos_1$INOCULO,
+                                    media_blocos_1$CICLO)$p.value
+
+# Exibir o resultado do teste de Bartlett
+print(resultado_bartlett)
+
+# Interpretação do p-valor
+if (resultado_bartlett > 0.05) {
+  print("A variância é homogênea entre os grupos.")
+} else {
+  print("A variância não é homogênea entre os grupos.")
+}
+```
+
+```{r}
+# Ajustar o modelo linear para parcelas subdivididas
+modelo_PARCELASUB = aov(kg_ha ~ BLOCO + CICLO * INOCULO * EFLUENTE + 
+                          Error(BLOCO*INOCULO), data = blocos_dados_1)
+
+# Visualizar os resultados do modelo
+summary(modelo_PARCELASUB)
+modelo = modelo_PARCELASUB
+```
+
+```{r}
+# Refazer o modelo sem o erro, apenas para facilitar as funções subsequentes
+modelo = aov(kg_ha ~ BLOCO + CICLO * INOCULO * EFLUENTE,
+             data = blocos_dados_1)
+
+# Realizar a análise de variância (ANOVA)
+anova_result <- anova(modelo)
+
+# Filtrar apenas os fatores significativos ao nível 0.05
+fatores_significativos <- anova_result[anova_result$"Pr(>F)" < 0.05, ]
+
+# Exibir as interações significativas
+print(fatores_significativos)
+```
+
+```{r}
+# Vetor com os fatores significativos
+nomes_linhas = row.names(fatores_significativos)
+
+# Filtrar apenas as interações
+interacoes_significativas <- nomes_linhas[nchar(nomes_linhas) > 8]
+
+# Exibir o resultado
+print(interacoes_significativas)
+```
+
+```{r}
+# Realizar o teste de Tukey para todas as interações significativas
+tukey_result <- TukeyHSD(modelo)
+```
+
+```{r}
+for (i in 1:length(interacoes_significativas)) {
+  if (length(interacoes_significativas) == 0){
+    break
+  }
+  interacao = interacoes_significativas[i]
+  partes <- strsplit(interacao, split = ":")
+  if (nchar(interacao) < 20){
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- 0
+  }
+  else{
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- partes[[1]][3]
+  }
+  
+  if(fator1 == "CICLO" && fator2 == "INOCULO" && fator3 == 0){
+    media_interacao <- aggregate(kg_ha ~ CICLO + INOCULO, 
+                             data = blocos_dados_1, FUN = mean)
+    print(media_interacao)
+  }
+  
+  if(fator1 == "CICLO" && fator2 == "EFLUENTE" && fator3 == 0){
+    media_interacao <- aggregate(kg_ha ~ CICLO + EFLUENTE, 
+                             data = blocos_dados_1, FUN = mean)
+    print(media_interacao)
+  }
+  
+  if(fator1 == "INOCULO" && fator2 == "EFLUENTE" && fator3 == 0){
+    media_interacao <- aggregate(kg_ha ~ INOCULO + EFLUENTE, 
+                             data = blocos_dados_1, FUN = mean)
+    print(media_interacao)
+  }
+  
+  if(fator1 == "CICLO" && fator2 == "INOCULO" && fator3 == "EFLUENTE"){
+    media_interacao <- aggregate(kg_ha ~ CICLO + INOCULO + EFLUENTE, 
+                             data = blocos_dados_1, FUN = mean)
+    print(media_interacao)
+  }
+}
+```
+
+```{r}
+for (i in 1:length(interacoes_significativas)) {
+  if (length(interacoes_significativas) == 0){
+    break
+  }
+  interacao = interacoes_significativas[i]
+  partes <- strsplit(interacao, split = ":")
+  if (nchar(interacao) < 20){
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- 0
+  }
+  else{
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- partes[[1]][3]
+  }
+  
+  inter_tukey = tukey_result[interacao]
+  inter_tukey = data.frame(inter_tukey)
+  colnames(inter_tukey) = c('diif','lwr','upr','p_adj')
+  inter_tukey = subset(inter_tukey, p_adj < 0.05)
+  print(inter_tukey)
+}
+```
+
+```{r}
+# Juntar dados em um mesmo dataframe
+dados_final = blocos_dados_1
+
+
+# Criar planilha com todos os dados atualizados
+library("xlsx")
+write.xlsx(dados_final, file = "Produtividade atualizado.xlsx",
+      sheetName = "R - Produtividade", append = FALSE)
+```

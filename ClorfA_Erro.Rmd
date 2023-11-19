@@ -1,0 +1,2240 @@
+---
+title: "Clorofilômetro Clorofila A"
+author: "Ana Carolina Murad Lima"
+date: "2023-06-22"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Bibliotecas
+library(readxl)
+library(dplyr)
+library(ggplot2)
+```
+
+### CICLO 1 ###
+
+```{r}
+# Leitura e tratamento dos dados
+dados <- read_excel("Clorofilômetro ClorfA ok.xlsx")
+
+# Excluir colunas irrelevantes para a análise
+dados = dados[-c(1:3)]
+
+# Ordenar o dataframe por quatro colunas diferentes
+dados <- with(dados, dados[order(CICLO, BLOCO, EFLUENTE, INOCULO), ])
+
+# Converter as colunas para tipo numérico e arredondar valores em duas casas
+for (i in 5:9) {
+  dados[, i] <- as.numeric(unlist(dados[, i]))
+}
+dados[5:9] =  round(dados[5:9], digits = 2)
+str(dados)
+```
+
+```{r}
+# Transformar as colunas em variáveis categóricas
+dados$BLOCO <- factor(dados$BLOCO)
+dados$CICLO <- factor(dados$CICLO)
+dados$INOCULO <- factor(dados$INOCULO)
+dados$EFLUENTE <- factor(dados$EFLUENTE)
+```
+
+```{r}
+# Níveis para cada fator de tratamentos
+library(dae)
+n.F <- 2
+n.D <- 5
+n.Bloco <- 4
+tr <- data.frame(cbind(INOCULO = paste("I", rep(1:n.F, each = n.D, times =
+                                                  n.Bloco),
+                                       sep = ""),
+                       EFLUENTE = paste("E", rep(1:n.D, times = n.F*n.Bloco),
+                                        sep = "")))
+units <- list(Bloco = n.Bloco,
+              Parcela = (n.F*n.D))
+nest <- list(Parcela = "Bloco")
+(lay <- designRandomize(allocated = tr,
+                        recipient = units,
+                        nested.recipients = nest,
+                        seed = 9719532))
+
+table(lay$I)
+table(lay$E)
+
+lay$Tratamento <- factor(paste(lay$I, lay$E, sep = ":"))
+print(lay$Tratamento)
+```
+
+```{r}
+# Usar apenas dados do Ciclo 1
+dados = subset(dados, CICLO == 1)
+```
+
+```{r}
+# Separar os dados de acordo com o período de tempo da coleta
+dados_tempo_1 = dados[c(1:5)] # 24, 29
+dados_tempo_1$ClorfA = dados_tempo_1$`24 E 29 DAS`
+dados_tempo_1 = dados_tempo_1[-5]
+dados_tempo_2 = dados[c(1:4,6)] # 43, 40
+dados_tempo_2$ClorfA = dados_tempo_2$`43 E 40 DAS`
+dados_tempo_2 = dados_tempo_2[-5]
+dados_tempo_3 = dados[c(1:4,7)] # 52, 54
+dados_tempo_3$ClorfA = dados_tempo_3$`52 E 54 DAS`
+dados_tempo_3 = dados_tempo_3[-5]
+dados_tempo_4 = dados[c(1:4,8)] # 64, 61
+dados_tempo_4$ClorfA = dados_tempo_4$`64 E 61 DAS`
+dados_tempo_4 = dados_tempo_4[-5]
+dados_tempo_5 = dados[c(1:4,9)] # 114
+dados_tempo_5$ClorfA = dados_tempo_5$`114 DAS`
+dados_tempo_5 = dados_tempo_5[-5]
+
+# Estrutura dos dados após separados
+"dados_tempo_1"
+str(dados_tempo_1)
+"dados_tempo_2"
+str(dados_tempo_2)
+"dados_tempo_3"
+str(dados_tempo_3)
+"dados_tempo_4"
+str(dados_tempo_4)
+"dados_tempo_5"
+str(dados_tempo_5)
+```
+
+### Análise para 24 e 29 dias ###
+
+```{r}
+# Gráficos com os boxplots para cada combinação de todos os fatores
+ggplot(dados_tempo_1, aes(x = factor(EFLUENTE), y = ClorfA)) +
+  geom_boxplot() +
+  facet_grid(INOCULO ~ CICLO) +
+  labs(x = "EFLUENTE", y = "Clorofila A") +
+  ggtitle("Boxplots por combinação dos fatores")
+```
+
+```{r}
+# Calcular os limites inferiores de outliers para cada combinação de fatores
+limites_outliers <- aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                              data = dados_tempo_1, FUN = function(x) {
+  q <- quantile(x, c(0.25, 0.75), na.rm = TRUE)
+  iqr <- q[2] - q[1]
+  limite_inferior <- q[1] - 1.5 * iqr
+})
+
+# Armazenar vetor com os limites inferiores
+lim_inf = limites_outliers$ClorfA
+
+# Calcular os limites superiores de outliers para cada combinação de fatores
+limites_outliers <- aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                              data = dados_tempo_1, FUN = function(x) {
+  q <- quantile(x, c(0.25, 0.75), na.rm = TRUE)
+  iqr <- q[2] - q[1]
+  limite_superior <- q[2] + 1.5 * iqr
+})
+
+# Armazenar vetor com os limites superiores
+lim_sup = limites_outliers$ClorfA
+
+# Montar Dataframe com os limites inferior e superior
+limites_outliers = limites_outliers[c(1:3)]
+limites_outliers$LIM_INF = lim_inf
+limites_outliers$LIM_SUP = lim_sup
+
+# Replicar cada linha por 4 vezes
+limites_outliers <- limites_outliers[rep(row.names(limites_outliers), 
+                                         each = 4), ]
+
+# Redefinir os índices das linhas
+rownames(limites_outliers) <- NULL
+
+# Reordenar os dados do tempo 1 seguindo a combinação de fatores por cada bloco
+blocos_dados_tempo_1 <- with(dados_tempo_1, 
+                             dados_tempo_1[order(CICLO, INOCULO, EFLUENTE), ])
+
+# Definir como NA (valor ausente) os outliers
+blocos_dados_tempo_1$ClorfA[which(blocos_dados_tempo_1$ClorfA < 
+                                    limites_outliers$LIM_INF)] = NA
+blocos_dados_tempo_1$ClorfA[which(blocos_dados_tempo_1$ClorfA > 
+                                    limites_outliers$LIM_SUP)] = NA
+
+# Calcular a média para cada grupo de 4 linhas
+media_blocos_tempo_1 = aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                                 data = blocos_dados_tempo_1, FUN = mean)
+
+# Replicar cada linha por 4 vezes
+media_blocos_tempo_1 = media_blocos_tempo_1[rep(row.names(media_blocos_tempo_1), 
+                                                each = 4), ]
+
+# Redefinir os índices das linhas
+rownames(media_blocos_tempo_1) <- NULL
+
+# Preencher os NA's com as médias dos 4 blocos para a 
+# combinação de fatores específica
+blocos_dados_tempo_1$ClorfA[which(is.na(blocos_dados_tempo_1$ClorfA))] =
+  media_blocos_tempo_1$ClorfA[which(is.na(blocos_dados_tempo_1$ClorfA))]
+
+```
+
+```{r}
+# Análises Descritivas
+str(blocos_dados_tempo_1)
+summary(blocos_dados_tempo_1)
+
+# Número de observações
+with(blocos_dados_tempo_1, tapply(ClorfA, list(EFLUENTE, INOCULO), length))
+with(blocos_dados_tempo_1, tapply(ClorfA, list(EFLUENTE, INOCULO), sum))
+with(blocos_dados_tempo_1, tapply(ClorfA, list(EFLUENTE, INOCULO), mean))
+with(blocos_dados_tempo_1, tapply(ClorfA, list(EFLUENTE, INOCULO), var))
+with(blocos_dados_tempo_1, tapply(ClorfA, list(EFLUENTE, INOCULO), sd))
+
+# Tamanho das Médias
+T.medias <- with(blocos_dados_tempo_1,
+                 model.tables(aov(ClorfA ~ BLOCO + EFLUENTE + INOCULO +
+                                    EFLUENTE:INOCULO),
+                              "means"))
+T.medias
+```
+
+```{r}
+# Media dos blocos para fazer os testes de Normalidade e Homocedasticidade
+media_blocos_tempo_1 = aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                                 data = blocos_dados_tempo_1, FUN = mean)
+
+# Realizar o teste Shapiro-Wilk no conjunto de dados completo
+resultado_shapiro <- shapiro.test(log(media_blocos_tempo_1$ClorfA))$p.value
+
+# Exibir o resultado do teste Shapiro-Wilk
+print(resultado_shapiro)
+
+# Interpretação do p-valor
+if (resultado_shapiro > 0.05) {
+  print("Os dados seguem uma distribuição normal.")
+} else {
+  print("Os dados não seguem uma distribuição normal.")
+}
+```
+
+```{r}
+# Realizar o teste de Bartlett no conjunto de dados completo
+resultado_bartlett <- bartlett.test(media_blocos_tempo_1$ClorfA, 
+                                    media_blocos_tempo_1$EFLUENTE, 
+                                    media_blocos_tempo_1$INOCULO,
+                                    media_blocos_tempo_1$CICLO)$p.value
+
+# Exibir o resultado do teste de Bartlett
+print(resultado_bartlett)
+
+# Interpretação do p-valor
+if (resultado_bartlett > 0.05) {
+  print("A variância é homogênea entre os grupos.")
+} else {
+  print("A variância não é homogênea entre os grupos.")
+}
+```
+
+```{r}
+# Ajustar o modelo linear para parcelas subdivididas
+modelo_PARCELASUB = aov(ClorfA ~ BLOCO + INOCULO * EFLUENTE + 
+                          Error(BLOCO*INOCULO), data = blocos_dados_tempo_1)
+
+# Visualizar os resultados do modelo
+summary(modelo_PARCELASUB)
+modelo = modelo_PARCELASUB
+```
+
+```{r}
+# Refazer o modelo sem o erro, apenas para facilitar as funções subsequentes
+modelo = aov(ClorfA ~ BLOCO + INOCULO * EFLUENTE,
+             data = blocos_dados_tempo_1)
+
+# Realizar a análise de variância (ANOVA)
+anova_result <- anova(modelo)
+
+# Filtrar apenas os fatores significativos ao nível 0.05
+fatores_significativos <- anova_result[anova_result$"Pr(>F)" < 0.05, ]
+
+# Exibir as interações significativas
+print(fatores_significativos)
+```
+
+```{r}
+# Vetor com os fatores significativos
+nomes_linhas = row.names(fatores_significativos)
+
+# Filtrar apenas as interações
+interacoes_significativas <- nomes_linhas[nchar(nomes_linhas) > 8]
+
+# Exibir o resultado
+print(interacoes_significativas)
+```
+
+```{r}
+# Realizar o teste de Tukey para todas as interações significativas
+tukey_result <- TukeyHSD(modelo)
+```
+
+```{r}
+for (i in 1:length(interacoes_significativas)) {
+  if (length(interacoes_significativas) == 0){
+    break
+  }
+  interacao = interacoes_significativas[i]
+  partes <- strsplit(interacao, split = ":")
+  if (nchar(interacao) < 20){
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- 0
+  }
+  else{
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- partes[[1]][3]
+  }
+  
+  if(fator1 == "INOCULO" && fator2 == "EFLUENTE" && fator3 == 0){
+    media_interacao <- aggregate(ClorfA ~ INOCULO + EFLUENTE, 
+                             data = blocos_dados_tempo_1, FUN = mean)
+    print(media_interacao)
+  }
+
+}
+```
+
+```{r}
+for (i in 1:length(interacoes_significativas)) {
+  if (length(interacoes_significativas) == 0){
+    break
+  }
+  interacao = interacoes_significativas[i]
+  partes <- strsplit(interacao, split = ":")
+  if (nchar(interacao) < 20){
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- 0
+  }
+  else{
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- partes[[1]][3]
+  }
+  
+  inter_tukey = tukey_result[interacao]
+  inter_tukey = data.frame(inter_tukey)
+  colnames(inter_tukey) = c('diif','lwr','upr','p_adj')
+  inter_tukey = subset(inter_tukey, p_adj < 0.05)
+  print(inter_tukey)
+}
+```
+
+### Análise para 43 e 40 dias ###
+
+```{r}
+# Gráficos com os boxplots para cada combinação de todos os fatores
+ggplot(dados_tempo_2, aes(x = factor(EFLUENTE), y = ClorfA)) +
+  geom_boxplot() +
+  facet_grid(INOCULO ~ CICLO) +
+  labs(x = "EFLUENTE", y = "Clorofila A") +
+  ggtitle("Boxplots por combinação dos fatores")
+```
+
+```{r}
+# Calcular os limites inferiores de outliers para cada combinação de fatores
+limites_outliers <- aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                              data = dados_tempo_2, FUN = function(x) {
+  q <- quantile(x, c(0.25, 0.75), na.rm = TRUE)
+  iqr <- q[2] - q[1]
+  limite_inferior <- q[1] - 1.5 * iqr
+})
+
+# Armazenar vetor com os limites inferiores
+lim_inf = limites_outliers$ClorfA
+
+# Calcular os limites superiores de outliers para cada combinação de fatores
+limites_outliers <- aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                              data = dados_tempo_2, FUN = function(x) {
+  q <- quantile(x, c(0.25, 0.75), na.rm = TRUE)
+  iqr <- q[2] - q[1]
+  limite_superior <- q[2] + 1.5 * iqr
+})
+
+# Armazenar vetor com os limites superiores
+lim_sup = limites_outliers$ClorfA
+
+# Montar Dataframe com os limites inferior e superior
+limites_outliers = limites_outliers[c(1:3)]
+limites_outliers$LIM_INF = lim_inf
+limites_outliers$LIM_SUP = lim_sup
+
+# Replicar cada linha por 4 vezes
+limites_outliers <- limites_outliers[rep(row.names(limites_outliers), 
+                                         each = 4), ]
+
+# Redefinir os índices das linhas
+rownames(limites_outliers) <- NULL
+
+# Reordenar os dados do tempo 1 seguindo a combinação de fatores por cada bloco
+blocos_dados_tempo_2 <- with(dados_tempo_2, 
+                             dados_tempo_2[order(CICLO, INOCULO, EFLUENTE), ])
+
+# Definir como NA (valor ausente) os outliers
+blocos_dados_tempo_2$ClorfA[which(blocos_dados_tempo_2$ClorfA < 
+                                    limites_outliers$LIM_INF)] = NA
+blocos_dados_tempo_2$ClorfA[which(blocos_dados_tempo_2$ClorfA > 
+                                    limites_outliers$LIM_SUP)] = NA
+
+# Calcular a média para cada grupo de 4 linhas
+media_blocos_tempo_2 = aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                                 data = blocos_dados_tempo_2, FUN = mean)
+
+# Replicar cada linha por 4 vezes
+media_blocos_tempo_2 = media_blocos_tempo_2[rep(row.names(media_blocos_tempo_2), 
+                                                each = 4), ]
+
+# Redefinir os índices das linhas
+rownames(media_blocos_tempo_2) <- NULL
+
+# Preencher os NA's com as médias dos 4 blocos para a 
+# combinação de fatores específica
+blocos_dados_tempo_2$ClorfA[which(is.na(blocos_dados_tempo_2$ClorfA))] =
+  media_blocos_tempo_2$ClorfA[which(is.na(blocos_dados_tempo_2$ClorfA))]
+
+```
+
+```{r}
+# Análises Descritivas
+str(blocos_dados_tempo_2)
+summary(blocos_dados_tempo_2)
+
+# Número de observações
+with(blocos_dados_tempo_2, tapply(ClorfA, list(EFLUENTE, INOCULO), length))
+with(blocos_dados_tempo_2, tapply(ClorfA, list(EFLUENTE, INOCULO), sum))
+with(blocos_dados_tempo_2, tapply(ClorfA, list(EFLUENTE, INOCULO), mean))
+with(blocos_dados_tempo_2, tapply(ClorfA, list(EFLUENTE, INOCULO), var))
+with(blocos_dados_tempo_2, tapply(ClorfA, list(EFLUENTE, INOCULO), sd))
+
+# Tamanho das Médias
+T.medias <- with(blocos_dados_tempo_2,
+                 model.tables(aov(ClorfA ~ BLOCO + EFLUENTE + INOCULO +
+                                    EFLUENTE:INOCULO),
+                              "means"))
+T.medias
+```
+
+```{r}
+# Media dos blocos para fazer os testes de Normalidade e Homocedasticidade
+media_blocos_tempo_2 = aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                                 data = blocos_dados_tempo_2, FUN = mean)
+
+# Realizar o teste Shapiro-Wilk no conjunto de dados completo
+resultado_shapiro <- shapiro.test(media_blocos_tempo_2$ClorfA)$p.value
+
+# Exibir o resultado do teste Shapiro-Wilk
+print(resultado_shapiro)
+
+# Interpretação do p-valor
+if (resultado_shapiro > 0.05) {
+  print("Os dados seguem uma distribuição normal.")
+} else {
+  print("Os dados não seguem uma distribuição normal.")
+}
+```
+
+```{r}
+# Realizar o teste de Bartlett no conjunto de dados completo
+resultado_bartlett <- bartlett.test(media_blocos_tempo_2$ClorfA, 
+                                    media_blocos_tempo_2$EFLUENTE, 
+                                    media_blocos_tempo_2$INOCULO,
+                                    media_blocos_tempo_2$CICLO)$p.value
+
+# Exibir o resultado do teste de Bartlett
+print(resultado_bartlett)
+
+# Interpretação do p-valor
+if (resultado_bartlett > 0.05) {
+  print("A variância é homogênea entre os grupos.")
+} else {
+  print("A variância não é homogênea entre os grupos.")
+}
+```
+
+```{r}
+# Ajustar o modelo linear para parcelas subdivididas
+modelo_PARCELASUB = aov(ClorfA ~ BLOCO + INOCULO * EFLUENTE + 
+                          Error(BLOCO*INOCULO), data = blocos_dados_tempo_2)
+
+# Visualizar os resultados do modelo
+summary(modelo_PARCELASUB)
+modelo = modelo_PARCELASUB
+```
+
+```{r}
+# Refazer o modelo sem o erro, apenas para facilitar as funções subsequentes
+modelo = aov(ClorfA ~ BLOCO + INOCULO * EFLUENTE,
+             data = blocos_dados_tempo_2)
+
+# Realizar a análise de variância (ANOVA)
+anova_result <- anova(modelo)
+
+# Filtrar apenas os fatores significativos ao nível 0.05
+fatores_significativos <- anova_result[anova_result$"Pr(>F)" < 0.05, ]
+
+# Exibir as interações significativas
+print(fatores_significativos)
+```
+
+```{r}
+# Vetor com os fatores significativos
+nomes_linhas = row.names(fatores_significativos)
+
+# Filtrar apenas as interações
+interacoes_significativas <- nomes_linhas[nchar(nomes_linhas) > 8]
+
+# Exibir o resultado
+print(interacoes_significativas)
+```
+
+```{r}
+# Realizar o teste de Tukey para todas as interações significativas
+tukey_result <- TukeyHSD(modelo)
+```
+
+```{r}
+for (i in 1:length(interacoes_significativas)) {
+  if (length(interacoes_significativas) == 0){
+    break
+  }
+  interacao = interacoes_significativas[i]
+  partes <- strsplit(interacao, split = ":")
+  if (nchar(interacao) < 20){
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- 0
+  }
+  else{
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- partes[[1]][3]
+  }
+  
+  if(fator1 == "INOCULO" && fator2 == "EFLUENTE" && fator3 == 0){
+    media_interacao <- aggregate(ClorfA ~ INOCULO + EFLUENTE, 
+                             data = blocos_dados_tempo_2, FUN = mean)
+    print(media_interacao)
+  }
+  
+}
+```
+
+```{r}
+for (i in 1:length(interacoes_significativas)) {
+  if (length(interacoes_significativas) == 0){
+    break
+  }
+  interacao = interacoes_significativas[i]
+  partes <- strsplit(interacao, split = ":")
+  if (nchar(interacao) < 20){
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- 0
+  }
+  else{
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- partes[[1]][3]
+  }
+  
+  inter_tukey = tukey_result[interacao]
+  inter_tukey = data.frame(inter_tukey)
+  colnames(inter_tukey) = c('diif','lwr','upr','p_adj')
+  inter_tukey = subset(inter_tukey, p_adj < 0.05)
+  print(inter_tukey)
+}
+```
+
+### Análise para 52 e 54 dias ###
+
+```{r}
+# Gráficos com os boxplots para cada combinação de todos os fatores
+ggplot(dados_tempo_3, aes(x = factor(EFLUENTE), y = ClorfA)) +
+  geom_boxplot() +
+  facet_grid(INOCULO ~ CICLO) +
+  labs(x = "EFLUENTE", y = "Clorofila A") +
+  ggtitle("Boxplots por combinação dos fatores")
+```
+
+```{r}
+# Calcular os limites inferiores de outliers para cada combinação de fatores
+limites_outliers <- aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                              data = dados_tempo_3, FUN = function(x) {
+  q <- quantile(x, c(0.25, 0.75), na.rm = TRUE)
+  iqr <- q[2] - q[1]
+  limite_inferior <- q[1] - 1.5 * iqr
+})
+
+# Armazenar vetor com os limites inferiores
+lim_inf = limites_outliers$ClorfA
+
+# Calcular os limites superiores de outliers para cada combinação de fatores
+limites_outliers <- aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                              data = dados_tempo_3, FUN = function(x) {
+  q <- quantile(x, c(0.25, 0.75), na.rm = TRUE)
+  iqr <- q[2] - q[1]
+  limite_superior <- q[2] + 1.5 * iqr
+})
+
+# Armazenar vetor com os limites superiores
+lim_sup = limites_outliers$ClorfA
+
+# Montar Dataframe com os limites inferior e superior
+limites_outliers = limites_outliers[c(1:3)]
+limites_outliers$LIM_INF = lim_inf
+limites_outliers$LIM_SUP = lim_sup
+
+# Replicar cada linha por 4 vezes
+limites_outliers <- limites_outliers[rep(row.names(limites_outliers), 
+                                         each = 4), ]
+
+# Redefinir os índices das linhas
+rownames(limites_outliers) <- NULL
+
+# Reordenar os dados do tempo 1 seguindo a combinação de fatores por cada bloco
+blocos_dados_tempo_3 <- with(dados_tempo_3, 
+                             dados_tempo_3[order(CICLO, INOCULO, EFLUENTE), ])
+
+# Definir como NA (valor ausente) os outliers
+blocos_dados_tempo_3$ClorfA[which(blocos_dados_tempo_3$ClorfA < 
+                                    limites_outliers$LIM_INF)] = NA
+blocos_dados_tempo_3$ClorfA[which(blocos_dados_tempo_3$ClorfA > 
+                                    limites_outliers$LIM_SUP)] = NA
+
+# Calcular a média para cada grupo de 4 linhas
+media_blocos_tempo_3 = aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                                 data = blocos_dados_tempo_3, FUN = mean)
+
+# Replicar cada linha por 4 vezes
+media_blocos_tempo_3 = media_blocos_tempo_3[rep(row.names(media_blocos_tempo_3), 
+                                                each = 4), ]
+
+# Redefinir os índices das linhas
+rownames(media_blocos_tempo_3) <- NULL
+
+# Preencher os NA's com as médias dos 4 blocos para a 
+# combinação de fatores específica
+blocos_dados_tempo_3$ClorfA[which(is.na(blocos_dados_tempo_3$ClorfA))] =
+  media_blocos_tempo_3$ClorfA[which(is.na(blocos_dados_tempo_3$ClorfA))]
+
+```
+
+```{r}
+# Análises Descritivas
+str(blocos_dados_tempo_3)
+summary(blocos_dados_tempo_3)
+
+# Número de observações
+with(blocos_dados_tempo_3, tapply(ClorfA, list(EFLUENTE, INOCULO), length))
+with(blocos_dados_tempo_3, tapply(ClorfA, list(EFLUENTE, INOCULO), sum))
+with(blocos_dados_tempo_3, tapply(ClorfA, list(EFLUENTE, INOCULO), mean))
+with(blocos_dados_tempo_3, tapply(ClorfA, list(EFLUENTE, INOCULO), var))
+with(blocos_dados_tempo_3, tapply(ClorfA, list(EFLUENTE, INOCULO), sd))
+
+# Tamanho das Médias
+T.medias <- with(blocos_dados_tempo_3,
+                 model.tables(aov(ClorfA ~ BLOCO + EFLUENTE + INOCULO +
+                                    EFLUENTE:INOCULO),
+                              "means"))
+T.medias
+```
+
+```{r}
+# Media dos blocos para fazer os testes de Normalidade e Homocedasticidade
+media_blocos_tempo_3 = aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                                 data = blocos_dados_tempo_3, FUN = mean)
+
+# Realizar o teste Shapiro-Wilk no conjunto de dados completo
+resultado_shapiro <- shapiro.test(media_blocos_tempo_3$ClorfA)$p.value
+
+# Exibir o resultado do teste Shapiro-Wilk
+print(resultado_shapiro)
+
+# Interpretação do p-valor
+if (resultado_shapiro > 0.05) {
+  print("Os dados seguem uma distribuição normal.")
+} else {
+  print("Os dados não seguem uma distribuição normal.")
+}
+```
+
+```{r}
+# Realizar o teste de Bartlett no conjunto de dados completo
+resultado_bartlett <- bartlett.test(media_blocos_tempo_3$ClorfA, 
+                                    media_blocos_tempo_3$EFLUENTE, 
+                                    media_blocos_tempo_3$INOCULO,
+                                    media_blocos_tempo_3$CICLO)$p.value
+
+# Exibir o resultado do teste de Bartlett
+print(resultado_bartlett)
+
+# Interpretação do p-valor
+if (resultado_bartlett > 0.05) {
+  print("A variância é homogênea entre os grupos.")
+} else {
+  print("A variância não é homogênea entre os grupos.")
+}
+```
+
+```{r}
+# Ajustar o modelo linear para parcelas subdivididas
+modelo_PARCELASUB = aov(ClorfA ~ BLOCO + INOCULO * EFLUENTE + 
+                          Error(BLOCO*INOCULO), data = blocos_dados_tempo_3)
+
+# Visualizar os resultados do modelo
+summary(modelo_PARCELASUB)
+modelo = modelo_PARCELASUB
+```
+
+```{r}
+# Refazer o modelo sem o erro, apenas para facilitar as funções subsequentes
+modelo = aov(ClorfA ~ BLOCO + INOCULO * EFLUENTE,
+             data = blocos_dados_tempo_3)
+
+# Realizar a análise de variância (ANOVA)
+anova_result <- anova(modelo)
+
+# Filtrar apenas os fatores significativos ao nível 0.05
+fatores_significativos <- anova_result[anova_result$"Pr(>F)" < 0.05, ]
+
+# Exibir as interações significativas
+print(fatores_significativos)
+```
+
+```{r}
+# Vetor com os fatores significativos
+nomes_linhas = row.names(fatores_significativos)
+
+# Filtrar apenas as interações
+interacoes_significativas <- nomes_linhas[nchar(nomes_linhas) > 8]
+
+# Exibir o resultado
+print(interacoes_significativas)
+```
+
+```{r}
+# Realizar o teste de Tukey para todas as interações significativas
+tukey_result <- TukeyHSD(modelo)
+```
+
+```{r}
+for (i in 1:length(interacoes_significativas)) {
+  if (length(interacoes_significativas) == 0){
+    break
+  }
+  interacao = interacoes_significativas[i]
+  partes <- strsplit(interacao, split = ":")
+  if (nchar(interacao) < 20){
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- 0
+  }
+  else{
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- partes[[1]][3]
+  }
+  
+  if(fator1 == "INOCULO" && fator2 == "EFLUENTE" && fator3 == 0){
+    media_interacao <- aggregate(ClorfA ~ INOCULO + EFLUENTE, 
+                             data = blocos_dados_tempo_3, FUN = mean)
+    print(media_interacao)
+  }
+  
+}
+```
+
+```{r}
+for (i in 1:length(interacoes_significativas)) {
+  if (length(interacoes_significativas) == 0){
+    break
+  }
+  interacao = interacoes_significativas[i]
+  partes <- strsplit(interacao, split = ":")
+  if (nchar(interacao) < 20){
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- 0
+  }
+  else{
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- partes[[1]][3]
+  }
+  
+  inter_tukey = tukey_result[interacao]
+  inter_tukey = data.frame(inter_tukey)
+  colnames(inter_tukey) = c('diif','lwr','upr','p_adj')
+  inter_tukey = subset(inter_tukey, p_adj < 0.05)
+  print(inter_tukey)
+}
+```
+
+### Análise para 64 e 61 dias ###
+
+```{r}
+# Gráficos com os boxplots para cada combinação de todos os fatores
+ggplot(dados_tempo_4, aes(x = factor(EFLUENTE), y = ClorfA)) +
+  geom_boxplot() +
+  facet_grid(INOCULO ~ CICLO) +
+  labs(x = "EFLUENTE", y = "Clorofila A") +
+  ggtitle("Boxplots por combinação dos fatores")
+```
+
+```{r}
+# Calcular os limites inferiores de outliers para cada combinação de fatores
+limites_outliers <- aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                              data = dados_tempo_4, FUN = function(x) {
+  q <- quantile(x, c(0.25, 0.75), na.rm = TRUE)
+  iqr <- q[2] - q[1]
+  limite_inferior <- q[1] - 1.5 * iqr
+})
+
+# Armazenar vetor com os limites inferiores
+lim_inf = limites_outliers$ClorfA
+
+# Calcular os limites superiores de outliers para cada combinação de fatores
+limites_outliers <- aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                              data = dados_tempo_4, FUN = function(x) {
+  q <- quantile(x, c(0.25, 0.75), na.rm = TRUE)
+  iqr <- q[2] - q[1]
+  limite_superior <- q[2] + 1.5 * iqr
+})
+
+# Armazenar vetor com os limites superiores
+lim_sup = limites_outliers$ClorfA
+
+# Montar Dataframe com os limites inferior e superior
+limites_outliers = limites_outliers[c(1:3)]
+limites_outliers$LIM_INF = lim_inf
+limites_outliers$LIM_SUP = lim_sup
+
+# Replicar cada linha por 4 vezes
+limites_outliers <- limites_outliers[rep(row.names(limites_outliers), 
+                                         each = 4), ]
+
+# Redefinir os índices das linhas
+rownames(limites_outliers) <- NULL
+
+# Reordenar os dados do tempo 1 seguindo a combinação de fatores por cada bloco
+blocos_dados_tempo_4 <- with(dados_tempo_4, 
+                             dados_tempo_4[order(CICLO, INOCULO, EFLUENTE), ])
+
+# Definir como NA (valor ausente) os outliers
+blocos_dados_tempo_4$ClorfA[which(blocos_dados_tempo_4$ClorfA < 
+                                    limites_outliers$LIM_INF)] = NA
+blocos_dados_tempo_4$ClorfA[which(blocos_dados_tempo_4$ClorfA > 
+                                    limites_outliers$LIM_SUP)] = NA
+
+# Calcular a média para cada grupo de 4 linhas
+media_blocos_tempo_4 = aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                                 data = blocos_dados_tempo_4, FUN = mean)
+
+# Replicar cada linha por 4 vezes
+media_blocos_tempo_4 = media_blocos_tempo_4[rep(row.names(media_blocos_tempo_4), 
+                                                each = 4), ]
+
+# Redefinir os índices das linhas
+rownames(media_blocos_tempo_4) <- NULL
+
+# Preencher os NA's com as médias dos 4 blocos para a 
+# combinação de fatores específica
+blocos_dados_tempo_4$ClorfA[which(is.na(blocos_dados_tempo_4$ClorfA))] =
+  media_blocos_tempo_4$ClorfA[which(is.na(blocos_dados_tempo_4$ClorfA))]
+
+```
+
+```{r}
+# Análises Descritivas
+str(blocos_dados_tempo_4)
+summary(blocos_dados_tempo_4)
+
+# Número de observações
+with(blocos_dados_tempo_4, tapply(ClorfA, list(EFLUENTE, INOCULO), length))
+with(blocos_dados_tempo_4, tapply(ClorfA, list(EFLUENTE, INOCULO), sum))
+with(blocos_dados_tempo_4, tapply(ClorfA, list(EFLUENTE, INOCULO), mean))
+with(blocos_dados_tempo_4, tapply(ClorfA, list(EFLUENTE, INOCULO), var))
+with(blocos_dados_tempo_4, tapply(ClorfA, list(EFLUENTE, INOCULO), sd))
+
+# Tamanho das Médias
+T.medias <- with(blocos_dados_tempo_4,
+                 model.tables(aov(ClorfA ~ BLOCO + EFLUENTE + INOCULO +
+                                    EFLUENTE:INOCULO),
+                              "means"))
+T.medias
+```
+
+```{r}
+# Media dos blocos para fazer os testes de Normalidade e Homocedasticidade
+media_blocos_tempo_4 = aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                                 data = blocos_dados_tempo_4, FUN = mean)
+
+# Realizar o teste Shapiro-Wilk no conjunto de dados completo
+resultado_shapiro <- shapiro.test(media_blocos_tempo_4$ClorfA)$p.value
+
+# Exibir o resultado do teste Shapiro-Wilk
+print(resultado_shapiro)
+
+# Interpretação do p-valor
+if (resultado_shapiro > 0.05) {
+  print("Os dados seguem uma distribuição normal.")
+} else {
+  print("Os dados não seguem uma distribuição normal.")
+}
+```
+
+```{r}
+# Realizar o teste de Bartlett no conjunto de dados completo
+resultado_bartlett <- bartlett.test(media_blocos_tempo_4$ClorfA, 
+                                    media_blocos_tempo_4$EFLUENTE, 
+                                    media_blocos_tempo_4$INOCULO,
+                                    media_blocos_tempo_4$CICLO)$p.value
+
+# Exibir o resultado do teste de Bartlett
+print(resultado_bartlett)
+
+# Interpretação do p-valor
+if (resultado_bartlett > 0.05) {
+  print("A variância é homogênea entre os grupos.")
+} else {
+  print("A variância não é homogênea entre os grupos.")
+}
+```
+
+```{r}
+# Ajustar o modelo linear para parcelas subdivididas
+modelo_PARCELASUB = aov(ClorfA ~ BLOCO + INOCULO * EFLUENTE + 
+                          Error(BLOCO*INOCULO), data = blocos_dados_tempo_4)
+
+# Visualizar os resultados do modelo
+summary(modelo_PARCELASUB)
+modelo = modelo_PARCELASUB
+```
+
+```{r}
+# Refazer o modelo sem o erro, apenas para facilitar as funções subsequentes
+modelo = aov(ClorfA ~ BLOCO + INOCULO * EFLUENTE,
+             data = blocos_dados_tempo_4)
+
+# Realizar a análise de variância (ANOVA)
+anova_result <- anova(modelo)
+
+# Filtrar apenas os fatores significativos ao nível 0.05
+fatores_significativos <- anova_result[anova_result$"Pr(>F)" < 0.05, ]
+
+# Exibir as interações significativas
+print(fatores_significativos)
+```
+
+```{r}
+# Vetor com os fatores significativos
+nomes_linhas = row.names(fatores_significativos)
+
+# Filtrar apenas as interações
+interacoes_significativas <- nomes_linhas[nchar(nomes_linhas) > 8]
+
+# Exibir o resultado
+print(interacoes_significativas)
+```
+
+```{r}
+# Realizar o teste de Tukey para todas as interações significativas
+tukey_result <- TukeyHSD(modelo)
+```
+
+```{r}
+for (i in 1:length(interacoes_significativas)) {
+  if (length(interacoes_significativas) == 0){
+    break
+  }
+  interacao = interacoes_significativas[i]
+  partes <- strsplit(interacao, split = ":")
+  if (nchar(interacao) < 20){
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- 0
+  }
+  else{
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- partes[[1]][3]
+  }
+  
+  if(fator1 == "INOCULO" && fator2 == "EFLUENTE" && fator3 == 0){
+    media_interacao <- aggregate(ClorfA ~ INOCULO + EFLUENTE, 
+                             data = blocos_dados_tempo_4, FUN = mean)
+    print(media_interacao)
+  }
+  
+}
+```
+
+```{r}
+for (i in 1:length(interacoes_significativas)) {
+  if (length(interacoes_significativas) == 0){
+    break
+  }
+  interacao = interacoes_significativas[i]
+  partes <- strsplit(interacao, split = ":")
+  if (nchar(interacao) < 20){
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- 0
+  }
+  else{
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- partes[[1]][3]
+  }
+  
+  inter_tukey = tukey_result[interacao]
+  inter_tukey = data.frame(inter_tukey)
+  colnames(inter_tukey) = c('diif','lwr','upr','p_adj')
+  inter_tukey = subset(inter_tukey, p_adj < 0.05)
+  print(inter_tukey)
+}
+```
+
+### Análise para 114 dias ###
+
+```{r}
+# Gráficos com os boxplots para cada combinação de todos os fatores
+ggplot(dados_tempo_5, aes(x = factor(EFLUENTE), y = ClorfA)) +
+  geom_boxplot() +
+  facet_grid(INOCULO ~ CICLO) +
+  labs(x = "EFLUENTE", y = "Clorofila A") +
+  ggtitle("Boxplots por combinação dos fatores")
+```
+
+```{r}
+# Calcular os limites inferiores de outliers para cada combinação de fatores
+limites_outliers <- aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                              data = dados_tempo_5, FUN = function(x) {
+  q <- quantile(x, c(0.25, 0.75), na.rm = TRUE)
+  iqr <- q[2] - q[1]
+  limite_inferior <- q[1] - 1.5 * iqr
+})
+
+# Armazenar vetor com os limites inferiores
+lim_inf = limites_outliers$ClorfA
+
+# Calcular os limites superiores de outliers para cada combinação de fatores
+limites_outliers <- aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                              data = dados_tempo_5, FUN = function(x) {
+  q <- quantile(x, c(0.25, 0.75), na.rm = TRUE)
+  iqr <- q[2] - q[1]
+  limite_superior <- q[2] + 1.5 * iqr
+})
+
+# Armazenar vetor com os limites superiores
+lim_sup = limites_outliers$ClorfA
+
+# Montar Dataframe com os limites inferior e superior
+limites_outliers = limites_outliers[c(1:3)]
+limites_outliers$LIM_INF = lim_inf
+limites_outliers$LIM_SUP = lim_sup
+
+# Replicar cada linha por 4 vezes
+limites_outliers <- limites_outliers[rep(row.names(limites_outliers), 
+                                         each = 4), ]
+
+# Redefinir os índices das linhas
+rownames(limites_outliers) <- NULL
+
+# Reordenar os dados do tempo 1 seguindo a combinação de fatores por cada bloco
+blocos_dados_tempo_5 <- with(dados_tempo_5, 
+                             dados_tempo_5[order(CICLO, INOCULO, EFLUENTE), ])
+
+# Definir como NA (valor ausente) os outliers
+blocos_dados_tempo_5$ClorfA[which(blocos_dados_tempo_5$ClorfA < 
+                                    limites_outliers$LIM_INF)] = NA
+blocos_dados_tempo_5$ClorfA[which(blocos_dados_tempo_5$ClorfA > 
+                                    limites_outliers$LIM_SUP)] = NA
+
+# Calcular a média para cada grupo de 4 linhas
+media_blocos_tempo_5 = aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                                 data = blocos_dados_tempo_5, FUN = mean)
+
+# Replicar cada linha por 4 vezes
+media_blocos_tempo_5 = media_blocos_tempo_5[rep(row.names(media_blocos_tempo_5), 
+                                                each = 4), ]
+
+# Redefinir os índices das linhas
+rownames(media_blocos_tempo_5) <- NULL
+
+# Preencher os NA's com as médias dos 4 blocos para a 
+# combinação de fatores específica
+blocos_dados_tempo_5$ClorfA[which(is.na(blocos_dados_tempo_5$ClorfA))] =
+  media_blocos_tempo_5$ClorfA[which(is.na(blocos_dados_tempo_5$ClorfA))]
+
+```
+
+```{r}
+# Análises Descritivas
+str(blocos_dados_tempo_5)
+summary(blocos_dados_tempo_5)
+
+# Número de observações
+with(blocos_dados_tempo_5, tapply(ClorfA, list(EFLUENTE, INOCULO), length))
+with(blocos_dados_tempo_5, tapply(ClorfA, list(EFLUENTE, INOCULO), sum))
+with(blocos_dados_tempo_5, tapply(ClorfA, list(EFLUENTE, INOCULO), mean))
+with(blocos_dados_tempo_5, tapply(ClorfA, list(EFLUENTE, INOCULO), var))
+with(blocos_dados_tempo_5, tapply(ClorfA, list(EFLUENTE, INOCULO), sd))
+
+# Tamanho das Médias
+T.medias <- with(blocos_dados_tempo_5,
+                 model.tables(aov(ClorfA ~ BLOCO + EFLUENTE + INOCULO +
+                                  EFLUENTE:INOCULO),
+                              "means"))
+T.medias
+```
+
+```{r}
+# Media dos blocos para fazer os testes de Normalidade e Homocedasticidade
+media_blocos_tempo_5 = aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                                 data = blocos_dados_tempo_5, FUN = mean)
+
+# Realizar o teste Shapiro-Wilk no conjunto de dados completo
+resultado_shapiro <- shapiro.test(media_blocos_tempo_5$ClorfA)$p.value
+
+# Exibir o resultado do teste Shapiro-Wilk
+print(resultado_shapiro)
+
+# Interpretação do p-valor
+if (resultado_shapiro > 0.05) {
+  print("Os dados seguem uma distribuição normal.")
+} else {
+  print("Os dados não seguem uma distribuição normal.")
+}
+```
+
+```{r}
+# Realizar o teste de Bartlett no conjunto de dados completo
+resultado_bartlett <- bartlett.test(media_blocos_tempo_5$ClorfA, 
+                                    media_blocos_tempo_5$EFLUENTE, 
+                                    media_blocos_tempo_5$INOCULO,
+                                    media_blocos_tempo_5$CICLO)$p.value
+
+# Exibir o resultado do teste de Bartlett
+print(resultado_bartlett)
+
+# Interpretação do p-valor
+if (resultado_bartlett > 0.05) {
+  print("A variância é homogênea entre os grupos.")
+} else {
+  print("A variância não é homogênea entre os grupos.")
+}
+```
+
+```{r}
+# Ajustar o modelo linear para parcelas subdivididas
+modelo_PARCELASUB = aov(ClorfA ~ BLOCO + INOCULO * EFLUENTE + 
+                          Error(BLOCO*INOCULO), data = blocos_dados_tempo_5)
+
+# Visualizar os resultados do modelo
+summary(modelo_PARCELASUB)
+modelo = modelo_PARCELASUB
+```
+
+```{r}
+# Refazer o modelo sem o erro, apenas para facilitar as funções subsequentes
+modelo = aov(ClorfA ~ BLOCO + INOCULO * EFLUENTE,
+             data = blocos_dados_tempo_5)
+
+# Realizar a análise de variância (ANOVA)
+anova_result <- anova(modelo)
+
+# Filtrar apenas os fatores significativos ao nível 0.05
+fatores_significativos <- anova_result[anova_result$"Pr(>F)" < 0.05, ]
+
+# Exibir as interações significativas
+print(fatores_significativos)
+```
+
+```{r}
+# Vetor com os fatores significativos
+nomes_linhas = row.names(fatores_significativos)
+
+# Filtrar apenas as interações
+interacoes_significativas <- nomes_linhas[nchar(nomes_linhas) > 8]
+
+# Exibir o resultado
+print(interacoes_significativas)
+```
+
+```{r}
+# Realizar o teste de Tukey para todas as interações significativas
+tukey_result <- TukeyHSD(modelo)
+```
+
+```{r}
+for (i in 1:length(interacoes_significativas)) {
+  if (length(interacoes_significativas) == 0){
+    break
+  }
+  interacao = interacoes_significativas[i]
+  partes <- strsplit(interacao, split = ":")
+  if (nchar(interacao) < 20){
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- 0
+  }
+  else{
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- partes[[1]][3]
+  }
+  
+  if(fator1 == "INOCULO" && fator2 == "EFLUENTE" && fator3 == 0){
+    media_interacao <- aggregate(ClorfA ~ INOCULO + EFLUENTE, 
+                             data = blocos_dados_tempo_5, FUN = mean)
+    print(media_interacao)
+  }
+  
+}
+```
+
+```{r}
+for (i in 1:length(interacoes_significativas)) {
+  if (length(interacoes_significativas) == 0){
+    break
+  }
+  interacao = interacoes_significativas[i]
+  partes <- strsplit(interacao, split = ":")
+  if (nchar(interacao) < 20){
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- 0
+  }
+  else{
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- partes[[1]][3]
+  }
+  
+  inter_tukey = tukey_result[interacao]
+  inter_tukey = data.frame(inter_tukey)
+  colnames(inter_tukey) = c('diif','lwr','upr','p_adj')
+  inter_tukey = subset(inter_tukey, p_adj < 0.05)
+  print(inter_tukey)
+}
+```
+
+```{r}
+# Mudar nome das colunas dos dados atualizados
+blocos_dados_tempo_1$`24 E 29 DAS` = blocos_dados_tempo_1$ClorfA
+blocos_dados_tempo_1 = blocos_dados_tempo_1[-5]
+blocos_dados_tempo_2$`43 E 41 DAS` = blocos_dados_tempo_2$ClorfA
+blocos_dados_tempo_3$`52 E 54 DAS` = blocos_dados_tempo_3$ClorfA
+blocos_dados_tempo_4$`64 E 61 DAS` = blocos_dados_tempo_4$ClorfA
+blocos_dados_tempo_5$`114 DAS` = blocos_dados_tempo_5$ClorfA
+
+# Juntar dados em um mesmo dataframe
+dados_final = cbind(blocos_dados_tempo_1, blocos_dados_tempo_2["43 E 41 DAS"], 
+                    blocos_dados_tempo_3["52 E 54 DAS"],
+                    blocos_dados_tempo_4["64 E 61 DAS"],
+                    blocos_dados_tempo_5["114 DAS"])
+
+
+# Criar planilha com todos os dados atualizados
+library("xlsx")
+write.xlsx(dados_final, file = "Clorofilômetro ClorfA atualizado - Ciclo 1.xlsx",
+      sheetName = "R - ClorfA_1", append = FALSE)
+```
+
+### CICLO 2 ###
+
+```{r}
+# Leitura e tratamento dos dados
+dados <- read_excel("Clorofilômetro ClorfA ok.xlsx")
+
+# Excluir colunas irrelevantes para a análise
+dados = dados[-c(1:3)]
+
+# Ordenar o dataframe por quatro colunas diferentes
+dados <- with(dados, dados[order(CICLO, BLOCO, EFLUENTE, INOCULO), ])
+
+# Converter as colunas para tipo numérico e arredondar valores em duas casas
+for (i in 5:9) {
+  dados[, i] <- as.numeric(unlist(dados[, i]))
+}
+dados[5:9] =  round(dados[5:9], digits = 2)
+str(dados)
+```
+
+```{r}
+# Transformar as colunas em variáveis categóricas
+dados$BLOCO <- factor(dados$BLOCO)
+dados$CICLO <- factor(dados$CICLO)
+dados$INOCULO <- factor(dados$INOCULO)
+dados$EFLUENTE <- factor(dados$EFLUENTE)
+```
+
+```{r}
+# Usar apenas dados do Ciclo 2
+dados = subset(dados, CICLO == 2)
+```
+
+```{r}
+# Separar os dados de acordo com o período de tempo da coleta
+dados_tempo_1 = dados[c(1:5)] # 24, 29
+dados_tempo_1$ClorfA = dados_tempo_1$`24 E 29 DAS`
+dados_tempo_1 = dados_tempo_1[-5]
+dados_tempo_2 = dados[c(1:4,6)] # 43, 40
+dados_tempo_2$ClorfA = dados_tempo_2$`43 E 40 DAS`
+dados_tempo_2 = dados_tempo_2[-5]
+dados_tempo_3 = dados[c(1:4,7)] # 52, 54
+dados_tempo_3$ClorfA = dados_tempo_3$`52 E 54 DAS`
+dados_tempo_3 = dados_tempo_3[-5]
+dados_tempo_4 = dados[c(1:4,8)] # 64, 61
+dados_tempo_4$ClorfA = dados_tempo_4$`64 E 61 DAS`
+dados_tempo_4 = dados_tempo_4[-5]
+dados_tempo_5 = dados[c(1:4,9)] # 114
+dados_tempo_5$ClorfA = dados_tempo_5$`114 DAS`
+dados_tempo_5 = dados_tempo_5[-5]
+
+# Estrutura dos dados após separados
+"dados_tempo_1"
+str(dados_tempo_1)
+"dados_tempo_2"
+str(dados_tempo_2)
+"dados_tempo_3"
+str(dados_tempo_3)
+"dados_tempo_4"
+str(dados_tempo_4)
+"dados_tempo_5"
+str(dados_tempo_5)
+```
+
+### Análise para 24 e 29 dias ###
+
+```{r}
+# Gráficos com os boxplots para cada combinação de todos os fatores
+ggplot(dados_tempo_1, aes(x = factor(EFLUENTE), y = ClorfA)) +
+  geom_boxplot() +
+  facet_grid(INOCULO ~ CICLO) +
+  labs(x = "EFLUENTE", y = "Clorofila A") +
+  ggtitle("Boxplots por combinação dos fatores")
+```
+
+```{r}
+# Calcular os limites inferiores de outliers para cada combinação de fatores
+limites_outliers <- aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                              data = dados_tempo_1, FUN = function(x) {
+  q <- quantile(x, c(0.25, 0.75), na.rm = TRUE)
+  iqr <- q[2] - q[1]
+  limite_inferior <- q[1] - 1.5 * iqr
+})
+
+# Armazenar vetor com os limites inferiores
+lim_inf = limites_outliers$ClorfA
+
+# Calcular os limites superiores de outliers para cada combinação de fatores
+limites_outliers <- aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                              data = dados_tempo_1, FUN = function(x) {
+  q <- quantile(x, c(0.25, 0.75), na.rm = TRUE)
+  iqr <- q[2] - q[1]
+  limite_superior <- q[2] + 1.5 * iqr
+})
+
+# Armazenar vetor com os limites superiores
+lim_sup = limites_outliers$ClorfA
+
+# Montar Dataframe com os limites inferior e superior
+limites_outliers = limites_outliers[c(1:3)]
+limites_outliers$LIM_INF = lim_inf
+limites_outliers$LIM_SUP = lim_sup
+
+# Replicar cada linha por 4 vezes
+limites_outliers <- limites_outliers[rep(row.names(limites_outliers), 
+                                         each = 4), ]
+
+# Redefinir os índices das linhas
+rownames(limites_outliers) <- NULL
+
+# Reordenar os dados do tempo 1 seguindo a combinação de fatores por cada bloco
+blocos_dados_tempo_1 <- with(dados_tempo_1, 
+                             dados_tempo_1[order(CICLO, INOCULO, EFLUENTE), ])
+
+# Definir como NA (valor ausente) os outliers
+blocos_dados_tempo_1$ClorfA[which(blocos_dados_tempo_1$ClorfA < 
+                                    limites_outliers$LIM_INF)] = NA
+blocos_dados_tempo_1$ClorfA[which(blocos_dados_tempo_1$ClorfA > 
+                                    limites_outliers$LIM_SUP)] = NA
+
+# Calcular a média para cada grupo de 4 linhas
+media_blocos_tempo_1 = aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                                 data = blocos_dados_tempo_1, FUN = mean)
+
+# Replicar cada linha por 4 vezes
+media_blocos_tempo_1 = media_blocos_tempo_1[rep(row.names(media_blocos_tempo_1), 
+                                                each = 4), ]
+
+# Redefinir os índices das linhas
+rownames(media_blocos_tempo_1) <- NULL
+
+# Preencher os NA's com as médias dos 4 blocos para a 
+# combinação de fatores específica
+blocos_dados_tempo_1$ClorfA[which(is.na(blocos_dados_tempo_1$ClorfA))] =
+  media_blocos_tempo_1$ClorfA[which(is.na(blocos_dados_tempo_1$ClorfA))]
+
+```
+
+```{r}
+# Análises Descritivas
+str(blocos_dados_tempo_1)
+summary(blocos_dados_tempo_1)
+
+# Número de observações
+with(blocos_dados_tempo_1, tapply(ClorfA, list(EFLUENTE, INOCULO), length))
+with(blocos_dados_tempo_1, tapply(ClorfA, list(EFLUENTE, INOCULO), sum))
+with(blocos_dados_tempo_1, tapply(ClorfA, list(EFLUENTE, INOCULO), mean))
+with(blocos_dados_tempo_1, tapply(ClorfA, list(EFLUENTE, INOCULO), var))
+with(blocos_dados_tempo_1, tapply(ClorfA, list(EFLUENTE, INOCULO), sd))
+
+# Tamanho das Médias
+T.medias <- with(blocos_dados_tempo_1,
+                 model.tables(aov(ClorfA ~ BLOCO + EFLUENTE + INOCULO +
+                                    EFLUENTE:INOCULO),
+                              "means"))
+T.medias
+```
+
+```{r}
+# Media dos blocos para fazer os testes de Normalidade e Homocedasticidade
+media_blocos_tempo_1 = aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                                 data = blocos_dados_tempo_1, FUN = mean)
+
+# Realizar o teste Shapiro-Wilk no conjunto de dados completo
+resultado_shapiro <- shapiro.test(log(media_blocos_tempo_1$ClorfA))$p.value
+
+# Exibir o resultado do teste Shapiro-Wilk
+print(resultado_shapiro)
+
+# Interpretação do p-valor
+if (resultado_shapiro > 0.05) {
+  print("Os dados seguem uma distribuição normal.")
+} else {
+  print("Os dados não seguem uma distribuição normal.")
+}
+```
+
+```{r}
+# Realizar o teste de Bartlett no conjunto de dados completo
+resultado_bartlett <- bartlett.test(media_blocos_tempo_1$ClorfA, 
+                                    media_blocos_tempo_1$EFLUENTE, 
+                                    media_blocos_tempo_1$INOCULO,
+                                    media_blocos_tempo_1$CICLO)$p.value
+
+# Exibir o resultado do teste de Bartlett
+print(resultado_bartlett)
+
+# Interpretação do p-valor
+if (resultado_bartlett > 0.05) {
+  print("A variância é homogênea entre os grupos.")
+} else {
+  print("A variância não é homogênea entre os grupos.")
+}
+```
+
+```{r}
+# Ajustar o modelo linear para parcelas subdivididas
+modelo_PARCELASUB = aov(ClorfA ~ BLOCO + INOCULO * EFLUENTE + 
+                          Error(BLOCO*INOCULO), data = blocos_dados_tempo_1)
+
+# Visualizar os resultados do modelo
+summary(modelo_PARCELASUB)
+modelo = modelo_PARCELASUB
+```
+
+```{r}
+# Refazer o modelo sem o erro, apenas para facilitar as funções subsequentes
+modelo = aov(ClorfA ~ BLOCO + INOCULO * EFLUENTE,
+             data = blocos_dados_tempo_1)
+
+# Realizar a análise de variância (ANOVA)
+anova_result <- anova(modelo)
+
+# Filtrar apenas os fatores significativos ao nível 0.05
+fatores_significativos <- anova_result[anova_result$"Pr(>F)" < 0.05, ]
+
+# Exibir as interações significativas
+print(fatores_significativos)
+```
+
+```{r}
+# Vetor com os fatores significativos
+nomes_linhas = row.names(fatores_significativos)
+
+# Filtrar apenas as interações
+interacoes_significativas <- nomes_linhas[nchar(nomes_linhas) > 8]
+
+# Exibir o resultado
+print(interacoes_significativas)
+```
+
+```{r}
+# Realizar o teste de Tukey para todas as interações significativas
+tukey_result <- TukeyHSD(modelo)
+```
+
+```{r}
+for (i in 1:length(interacoes_significativas)) {
+  if (length(interacoes_significativas) == 0){
+    break
+  }
+  interacao = interacoes_significativas[i]
+  partes <- strsplit(interacao, split = ":")
+  if (nchar(interacao) < 20){
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- 0
+  }
+  else{
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- partes[[1]][3]
+  }
+
+  if(fator1 == "INOCULO" && fator2 == "EFLUENTE" && fator3 == 0){
+    media_interacao <- aggregate(ClorfA ~ INOCULO + EFLUENTE, 
+                             data = blocos_dados_tempo_1, FUN = mean)
+    print(media_interacao)
+  }
+  
+}
+```
+
+```{r}
+for (i in 1:length(interacoes_significativas)) {
+  if (length(interacoes_significativas) == 0){
+    break
+  }
+  interacao = interacoes_significativas[i]
+  partes <- strsplit(interacao, split = ":")
+  if (nchar(interacao) < 20){
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- 0
+  }
+  else{
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- partes[[1]][3]
+  }
+  
+  inter_tukey = tukey_result[interacao]
+  inter_tukey = data.frame(inter_tukey)
+  colnames(inter_tukey) = c('diif','lwr','upr','p_adj')
+  inter_tukey = subset(inter_tukey, p_adj < 0.05)
+  print(inter_tukey)
+}
+```
+
+### Análise para 43 e 40 dias ###
+
+```{r}
+# Gráficos com os boxplots para cada combinação de todos os fatores
+ggplot(dados_tempo_2, aes(x = factor(EFLUENTE), y = ClorfA)) +
+  geom_boxplot() +
+  facet_grid(INOCULO ~ CICLO) +
+  labs(x = "EFLUENTE", y = "Clorofila A") +
+  ggtitle("Boxplots por combinação dos fatores")
+```
+
+```{r}
+# Calcular os limites inferiores de outliers para cada combinação de fatores
+limites_outliers <- aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                              data = dados_tempo_2, FUN = function(x) {
+  q <- quantile(x, c(0.25, 0.75), na.rm = TRUE)
+  iqr <- q[2] - q[1]
+  limite_inferior <- q[1] - 1.5 * iqr
+})
+
+# Armazenar vetor com os limites inferiores
+lim_inf = limites_outliers$ClorfA
+
+# Calcular os limites superiores de outliers para cada combinação de fatores
+limites_outliers <- aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                              data = dados_tempo_2, FUN = function(x) {
+  q <- quantile(x, c(0.25, 0.75), na.rm = TRUE)
+  iqr <- q[2] - q[1]
+  limite_superior <- q[2] + 1.5 * iqr
+})
+
+# Armazenar vetor com os limites superiores
+lim_sup = limites_outliers$ClorfA
+
+# Montar Dataframe com os limites inferior e superior
+limites_outliers = limites_outliers[c(1:3)]
+limites_outliers$LIM_INF = lim_inf
+limites_outliers$LIM_SUP = lim_sup
+
+# Replicar cada linha por 4 vezes
+limites_outliers <- limites_outliers[rep(row.names(limites_outliers), 
+                                         each = 4), ]
+
+# Redefinir os índices das linhas
+rownames(limites_outliers) <- NULL
+
+# Reordenar os dados do tempo 1 seguindo a combinação de fatores por cada bloco
+blocos_dados_tempo_2 <- with(dados_tempo_2, 
+                             dados_tempo_2[order(CICLO, INOCULO, EFLUENTE), ])
+
+# Definir como NA (valor ausente) os outliers
+blocos_dados_tempo_2$ClorfA[which(blocos_dados_tempo_2$ClorfA < 
+                                    limites_outliers$LIM_INF)] = NA
+blocos_dados_tempo_2$ClorfA[which(blocos_dados_tempo_2$ClorfA > 
+                                    limites_outliers$LIM_SUP)] = NA
+
+# Calcular a média para cada grupo de 4 linhas
+media_blocos_tempo_2 = aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                                 data = blocos_dados_tempo_2, FUN = mean)
+
+# Replicar cada linha por 4 vezes
+media_blocos_tempo_2 = media_blocos_tempo_2[rep(row.names(media_blocos_tempo_2), 
+                                                each = 4), ]
+
+# Redefinir os índices das linhas
+rownames(media_blocos_tempo_2) <- NULL
+
+# Preencher os NA's com as médias dos 4 blocos para a 
+# combinação de fatores específica
+blocos_dados_tempo_2$ClorfA[which(is.na(blocos_dados_tempo_2$ClorfA))] =
+  media_blocos_tempo_2$ClorfA[which(is.na(blocos_dados_tempo_2$ClorfA))]
+
+```
+
+```{r}
+# Análises Descritivas
+str(blocos_dados_tempo_2)
+summary(blocos_dados_tempo_2)
+
+# Número de observações
+with(blocos_dados_tempo_2, tapply(ClorfA, list(EFLUENTE, INOCULO), length))
+with(blocos_dados_tempo_2, tapply(ClorfA, list(EFLUENTE, INOCULO), sum))
+with(blocos_dados_tempo_2, tapply(ClorfA, list(EFLUENTE, INOCULO), mean))
+with(blocos_dados_tempo_2, tapply(ClorfA, list(EFLUENTE, INOCULO), var))
+with(blocos_dados_tempo_2, tapply(ClorfA, list(EFLUENTE, INOCULO), sd))
+
+# Tamanho das Médias
+T.medias <- with(blocos_dados_tempo_2,
+                 model.tables(aov(ClorfA ~ BLOCO + EFLUENTE + INOCULO +
+                                    EFLUENTE:INOCULO),
+                              "means"))
+T.medias
+```
+
+```{r}
+# Media dos blocos para fazer os testes de Normalidade e Homocedasticidade
+media_blocos_tempo_2 = aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                                 data = blocos_dados_tempo_2, FUN = mean)
+
+# Realizar o teste Shapiro-Wilk no conjunto de dados completo
+resultado_shapiro <- shapiro.test(media_blocos_tempo_2$ClorfA)$p.value
+
+# Exibir o resultado do teste Shapiro-Wilk
+print(resultado_shapiro)
+
+# Interpretação do p-valor
+if (resultado_shapiro > 0.05) {
+  print("Os dados seguem uma distribuição normal.")
+} else {
+  print("Os dados não seguem uma distribuição normal.")
+}
+```
+
+```{r}
+# Realizar o teste de Bartlett no conjunto de dados completo
+resultado_bartlett <- bartlett.test(media_blocos_tempo_2$ClorfA, 
+                                    media_blocos_tempo_2$EFLUENTE, 
+                                    media_blocos_tempo_2$INOCULO,
+                                    media_blocos_tempo_2$CICLO)$p.value
+
+# Exibir o resultado do teste de Bartlett
+print(resultado_bartlett)
+
+# Interpretação do p-valor
+if (resultado_bartlett > 0.05) {
+  print("A variância é homogênea entre os grupos.")
+} else {
+  print("A variância não é homogênea entre os grupos.")
+}
+```
+
+```{r}
+# Ajustar o modelo linear para parcelas subdivididas
+modelo_PARCELASUB = aov(ClorfA ~ BLOCO + INOCULO * EFLUENTE + 
+                          Error(BLOCO*INOCULO), data = blocos_dados_tempo_2)
+
+# Visualizar os resultados do modelo
+summary(modelo_PARCELASUB)
+modelo = modelo_PARCELASUB
+```
+
+```{r}
+# Refazer o modelo sem o erro, apenas para facilitar as funções subsequentes
+modelo = aov(ClorfA ~ BLOCO + INOCULO * EFLUENTE,
+             data = blocos_dados_tempo_2)
+
+# Realizar a análise de variância (ANOVA)
+anova_result <- anova(modelo)
+
+# Filtrar apenas os fatores significativos ao nível 0.05
+fatores_significativos <- anova_result[anova_result$"Pr(>F)" < 0.05, ]
+
+# Exibir as interações significativas
+print(fatores_significativos)
+```
+
+```{r}
+# Vetor com os fatores significativos
+nomes_linhas = row.names(fatores_significativos)
+
+# Filtrar apenas as interações
+interacoes_significativas <- nomes_linhas[nchar(nomes_linhas) > 8]
+
+# Exibir o resultado
+print(interacoes_significativas)
+```
+
+```{r}
+# Realizar o teste de Tukey para todas as interações significativas
+tukey_result <- TukeyHSD(modelo)
+```
+
+```{r}
+for (i in 1:length(interacoes_significativas)) {
+  if (length(interacoes_significativas) == 0){
+    break
+  }
+  interacao = interacoes_significativas[i]
+  partes <- strsplit(interacao, split = ":")
+  if (nchar(interacao) < 20){
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- 0
+  }
+  else{
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- partes[[1]][3]
+  }
+  
+  if(fator1 == "INOCULO" && fator2 == "EFLUENTE" && fator3 == 0){
+    media_interacao <- aggregate(ClorfA ~ INOCULO + EFLUENTE, 
+                             data = blocos_dados_tempo_2, FUN = mean)
+    print(media_interacao)
+  }
+  
+}
+```
+
+```{r}
+for (i in 1:length(interacoes_significativas)) {
+  if (length(interacoes_significativas) == 0){
+    break
+  }
+  interacao = interacoes_significativas[i]
+  partes <- strsplit(interacao, split = ":")
+  if (nchar(interacao) < 20){
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- 0
+  }
+  else{
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- partes[[1]][3]
+  }
+  
+  inter_tukey = tukey_result[interacao]
+  inter_tukey = data.frame(inter_tukey)
+  colnames(inter_tukey) = c('diif','lwr','upr','p_adj')
+  inter_tukey = subset(inter_tukey, p_adj < 0.05)
+  print(inter_tukey)
+}
+```
+
+### Análise para 52 e 54 dias ###
+
+```{r}
+# Gráficos com os boxplots para cada combinação de todos os fatores
+ggplot(dados_tempo_3, aes(x = factor(EFLUENTE), y = ClorfA)) +
+  geom_boxplot() +
+  facet_grid(INOCULO ~ CICLO) +
+  labs(x = "EFLUENTE", y = "Clorofila A") +
+  ggtitle("Boxplots por combinação dos fatores")
+```
+
+```{r}
+# Calcular os limites inferiores de outliers para cada combinação de fatores
+limites_outliers <- aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                              data = dados_tempo_3, FUN = function(x) {
+  q <- quantile(x, c(0.25, 0.75), na.rm = TRUE)
+  iqr <- q[2] - q[1]
+  limite_inferior <- q[1] - 1.5 * iqr
+})
+
+# Armazenar vetor com os limites inferiores
+lim_inf = limites_outliers$ClorfA
+
+# Calcular os limites superiores de outliers para cada combinação de fatores
+limites_outliers <- aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                              data = dados_tempo_3, FUN = function(x) {
+  q <- quantile(x, c(0.25, 0.75), na.rm = TRUE)
+  iqr <- q[2] - q[1]
+  limite_superior <- q[2] + 1.5 * iqr
+})
+
+# Armazenar vetor com os limites superiores
+lim_sup = limites_outliers$ClorfA
+
+# Montar Dataframe com os limites inferior e superior
+limites_outliers = limites_outliers[c(1:3)]
+limites_outliers$LIM_INF = lim_inf
+limites_outliers$LIM_SUP = lim_sup
+
+# Replicar cada linha por 4 vezes
+limites_outliers <- limites_outliers[rep(row.names(limites_outliers), 
+                                         each = 4), ]
+
+# Redefinir os índices das linhas
+rownames(limites_outliers) <- NULL
+
+# Reordenar os dados do tempo 1 seguindo a combinação de fatores por cada bloco
+blocos_dados_tempo_3 <- with(dados_tempo_3, 
+                             dados_tempo_3[order(CICLO, INOCULO, EFLUENTE), ])
+
+# Definir como NA (valor ausente) os outliers
+blocos_dados_tempo_3$ClorfA[which(blocos_dados_tempo_3$ClorfA < 
+                                    limites_outliers$LIM_INF)] = NA
+blocos_dados_tempo_3$ClorfA[which(blocos_dados_tempo_3$ClorfA > 
+                                    limites_outliers$LIM_SUP)] = NA
+
+# Calcular a média para cada grupo de 4 linhas
+media_blocos_tempo_3 = aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                                 data = blocos_dados_tempo_3, FUN = mean)
+
+# Replicar cada linha por 4 vezes
+media_blocos_tempo_3 = media_blocos_tempo_3[rep(row.names(media_blocos_tempo_3), 
+                                                each = 4), ]
+
+# Redefinir os índices das linhas
+rownames(media_blocos_tempo_3) <- NULL
+
+# Preencher os NA's com as médias dos 4 blocos para a 
+# combinação de fatores específica
+blocos_dados_tempo_3$ClorfA[which(is.na(blocos_dados_tempo_3$ClorfA))] =
+  media_blocos_tempo_3$ClorfA[which(is.na(blocos_dados_tempo_3$ClorfA))]
+
+```
+
+```{r}
+# Análises Descritivas
+str(blocos_dados_tempo_3)
+summary(blocos_dados_tempo_3)
+
+# Número de observações
+with(blocos_dados_tempo_3, tapply(ClorfA, list(EFLUENTE, INOCULO), length))
+with(blocos_dados_tempo_3, tapply(ClorfA, list(EFLUENTE, INOCULO), sum))
+with(blocos_dados_tempo_3, tapply(ClorfA, list(EFLUENTE, INOCULO), mean))
+with(blocos_dados_tempo_3, tapply(ClorfA, list(EFLUENTE, INOCULO), var))
+with(blocos_dados_tempo_3, tapply(ClorfA, list(EFLUENTE, INOCULO), sd))
+
+# Tamanho das Médias
+T.medias <- with(blocos_dados_tempo_3,
+                 model.tables(aov(ClorfA ~ BLOCO + EFLUENTE + INOCULO +
+                                    EFLUENTE:INOCULO),
+                              "means"))
+T.medias
+```
+
+```{r}
+# Media dos blocos para fazer os testes de Normalidade e Homocedasticidade
+media_blocos_tempo_3 = aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                                 data = blocos_dados_tempo_3, FUN = mean)
+
+# Realizar o teste Shapiro-Wilk no conjunto de dados completo
+resultado_shapiro <- shapiro.test(media_blocos_tempo_3$ClorfA)$p.value
+
+# Exibir o resultado do teste Shapiro-Wilk
+print(resultado_shapiro)
+
+# Interpretação do p-valor
+if (resultado_shapiro > 0.05) {
+  print("Os dados seguem uma distribuição normal.")
+} else {
+  print("Os dados não seguem uma distribuição normal.")
+}
+```
+
+```{r}
+# Realizar o teste de Bartlett no conjunto de dados completo
+resultado_bartlett <- bartlett.test(media_blocos_tempo_3$ClorfA, 
+                                    media_blocos_tempo_3$EFLUENTE, 
+                                    media_blocos_tempo_3$INOCULO,
+                                    media_blocos_tempo_3$CICLO)$p.value
+
+# Exibir o resultado do teste de Bartlett
+print(resultado_bartlett)
+
+# Interpretação do p-valor
+if (resultado_bartlett > 0.05) {
+  print("A variância é homogênea entre os grupos.")
+} else {
+  print("A variância não é homogênea entre os grupos.")
+}
+```
+
+```{r}
+# Ajustar o modelo linear para parcelas subdivididas
+modelo_PARCELASUB = aov(ClorfA ~ BLOCO + INOCULO * EFLUENTE + 
+                          Error(BLOCO*INOCULO), data = blocos_dados_tempo_3)
+
+# Visualizar os resultados do modelo
+summary(modelo_PARCELASUB)
+modelo = modelo_PARCELASUB
+```
+
+```{r}
+# Refazer o modelo sem o erro, apenas para facilitar as funções subsequentes
+modelo = aov(ClorfA ~ BLOCO + INOCULO * EFLUENTE,
+             data = blocos_dados_tempo_3)
+
+# Realizar a análise de variância (ANOVA)
+anova_result <- anova(modelo)
+
+# Filtrar apenas os fatores significativos ao nível 0.05
+fatores_significativos <- anova_result[anova_result$"Pr(>F)" < 0.05, ]
+
+# Exibir as interações significativas
+print(fatores_significativos)
+```
+
+```{r}
+# Vetor com os fatores significativos
+nomes_linhas = row.names(fatores_significativos)
+
+# Filtrar apenas as interações
+interacoes_significativas <- nomes_linhas[nchar(nomes_linhas) > 8]
+
+# Exibir o resultado
+print(interacoes_significativas)
+```
+
+```{r}
+# Realizar o teste de Tukey para todas as interações significativas
+tukey_result <- TukeyHSD(modelo)
+```
+
+```{r}
+for (i in 1:length(interacoes_significativas)) {
+  if (length(interacoes_significativas) == 0){
+    break
+  }
+  interacao = interacoes_significativas[i]
+  partes <- strsplit(interacao, split = ":")
+  if (nchar(interacao) < 20){
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- 0
+  }
+  else{
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- partes[[1]][3]
+  }
+  
+  if(fator1 == "INOCULO" && fator2 == "EFLUENTE" && fator3 == 0){
+    media_interacao <- aggregate(ClorfA ~ INOCULO + EFLUENTE, 
+                             data = blocos_dados_tempo_3, FUN = mean)
+    print(media_interacao)
+  }
+  
+}
+```
+
+```{r}
+for (i in 1:length(interacoes_significativas)) {
+  if (length(interacoes_significativas) == 0){
+    break
+  }
+  interacao = interacoes_significativas[i]
+  partes <- strsplit(interacao, split = ":")
+  if (nchar(interacao) < 20){
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- 0
+  }
+  else{
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- partes[[1]][3]
+  }
+  
+  inter_tukey = tukey_result[interacao]
+  inter_tukey = data.frame(inter_tukey)
+  colnames(inter_tukey) = c('diif','lwr','upr','p_adj')
+  inter_tukey = subset(inter_tukey, p_adj < 0.05)
+  print(inter_tukey)
+}
+```
+
+### Análise para 64 e 61 dias ###
+
+```{r}
+# Gráficos com os boxplots para cada combinação de todos os fatores
+ggplot(dados_tempo_4, aes(x = factor(EFLUENTE), y = ClorfA)) +
+  geom_boxplot() +
+  facet_grid(INOCULO ~ CICLO) +
+  labs(x = "EFLUENTE", y = "Clorofila A") +
+  ggtitle("Boxplots por combinação dos fatores")
+```
+
+```{r}
+# Calcular os limites inferiores de outliers para cada combinação de fatores
+limites_outliers <- aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                              data = dados_tempo_4, FUN = function(x) {
+  q <- quantile(x, c(0.25, 0.75), na.rm = TRUE)
+  iqr <- q[2] - q[1]
+  limite_inferior <- q[1] - 1.5 * iqr
+})
+
+# Armazenar vetor com os limites inferiores
+lim_inf = limites_outliers$ClorfA
+
+# Calcular os limites superiores de outliers para cada combinação de fatores
+limites_outliers <- aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                              data = dados_tempo_4, FUN = function(x) {
+  q <- quantile(x, c(0.25, 0.75), na.rm = TRUE)
+  iqr <- q[2] - q[1]
+  limite_superior <- q[2] + 1.5 * iqr
+})
+
+# Armazenar vetor com os limites superiores
+lim_sup = limites_outliers$ClorfA
+
+# Montar Dataframe com os limites inferior e superior
+limites_outliers = limites_outliers[c(1:3)]
+limites_outliers$LIM_INF = lim_inf
+limites_outliers$LIM_SUP = lim_sup
+
+# Replicar cada linha por 4 vezes
+limites_outliers <- limites_outliers[rep(row.names(limites_outliers), 
+                                         each = 4), ]
+
+# Redefinir os índices das linhas
+rownames(limites_outliers) <- NULL
+
+# Reordenar os dados do tempo 1 seguindo a combinação de fatores por cada bloco
+blocos_dados_tempo_4 <- with(dados_tempo_4, 
+                             dados_tempo_4[order(CICLO, INOCULO, EFLUENTE), ])
+
+# Definir como NA (valor ausente) os outliers
+blocos_dados_tempo_4$ClorfA[which(blocos_dados_tempo_4$ClorfA < 
+                                    limites_outliers$LIM_INF)] = NA
+blocos_dados_tempo_4$ClorfA[which(blocos_dados_tempo_4$ClorfA > 
+                                    limites_outliers$LIM_SUP)] = NA
+
+# Calcular a média para cada grupo de 4 linhas
+media_blocos_tempo_4 = aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                                 data = blocos_dados_tempo_4, FUN = mean)
+
+# Replicar cada linha por 4 vezes
+media_blocos_tempo_4 = media_blocos_tempo_4[rep(row.names(media_blocos_tempo_4), 
+                                                each = 4), ]
+
+# Redefinir os índices das linhas
+rownames(media_blocos_tempo_4) <- NULL
+
+# Preencher os NA's com as médias dos 4 blocos para a 
+# combinação de fatores específica
+blocos_dados_tempo_4$ClorfA[which(is.na(blocos_dados_tempo_4$ClorfA))] =
+  media_blocos_tempo_4$ClorfA[which(is.na(blocos_dados_tempo_4$ClorfA))]
+
+```
+
+```{r}
+# Análises Descritivas
+str(blocos_dados_tempo_4)
+summary(blocos_dados_tempo_4)
+
+# Número de observações
+with(blocos_dados_tempo_4, tapply(ClorfA, list(EFLUENTE, INOCULO), length))
+with(blocos_dados_tempo_4, tapply(ClorfA, list(EFLUENTE, INOCULO), sum))
+with(blocos_dados_tempo_4, tapply(ClorfA, list(EFLUENTE, INOCULO), mean))
+with(blocos_dados_tempo_4, tapply(ClorfA, list(EFLUENTE, INOCULO), var))
+with(blocos_dados_tempo_4, tapply(ClorfA, list(EFLUENTE, INOCULO), sd))
+
+# Tamanho das Médias
+T.medias <- with(blocos_dados_tempo_4,
+                 model.tables(aov(ClorfA ~ BLOCO + EFLUENTE + INOCULO +
+                                    EFLUENTE:INOCULO),
+                              "means"))
+T.medias
+```
+
+```{r}
+# Media dos blocos para fazer os testes de Normalidade e Homocedasticidade
+media_blocos_tempo_4 = aggregate(ClorfA ~ EFLUENTE + INOCULO + CICLO, 
+                                 data = blocos_dados_tempo_4, FUN = mean)
+
+# Realizar o teste Shapiro-Wilk no conjunto de dados completo
+resultado_shapiro <- shapiro.test(media_blocos_tempo_4$ClorfA)$p.value
+
+# Exibir o resultado do teste Shapiro-Wilk
+print(resultado_shapiro)
+
+# Interpretação do p-valor
+if (resultado_shapiro > 0.05) {
+  print("Os dados seguem uma distribuição normal.")
+} else {
+  print("Os dados não seguem uma distribuição normal.")
+}
+```
+
+```{r}
+# Realizar o teste de Bartlett no conjunto de dados completo
+resultado_bartlett <- bartlett.test(media_blocos_tempo_4$ClorfA, 
+                                    media_blocos_tempo_4$EFLUENTE, 
+                                    media_blocos_tempo_4$INOCULO,
+                                    media_blocos_tempo_4$CICLO)$p.value
+
+# Exibir o resultado do teste de Bartlett
+print(resultado_bartlett)
+
+# Interpretação do p-valor
+if (resultado_bartlett > 0.05) {
+  print("A variância é homogênea entre os grupos.")
+} else {
+  print("A variância não é homogênea entre os grupos.")
+}
+```
+
+```{r}
+# Ajustar o modelo linear para parcelas subdivididas
+modelo_PARCELASUB = aov(ClorfA ~ BLOCO + INOCULO * EFLUENTE + 
+                          Error(BLOCO*INOCULO), data = blocos_dados_tempo_4)
+
+# Visualizar os resultados do modelo
+summary(modelo_PARCELASUB)
+modelo = modelo_PARCELASUB
+```
+
+```{r}
+# Refazer o modelo sem o erro, apenas para facilitar as funções subsequentes
+modelo = aov(ClorfA ~ BLOCO + INOCULO * EFLUENTE,
+             data = blocos_dados_tempo_4)
+
+# Realizar a análise de variância (ANOVA)
+anova_result <- anova(modelo)
+
+# Filtrar apenas os fatores significativos ao nível 0.05
+fatores_significativos <- anova_result[anova_result$"Pr(>F)" < 0.05, ]
+
+# Exibir as interações significativas
+print(fatores_significativos)
+```
+
+```{r}
+# Vetor com os fatores significativos
+nomes_linhas = row.names(fatores_significativos)
+
+# Filtrar apenas as interações
+interacoes_significativas <- nomes_linhas[nchar(nomes_linhas) > 8]
+
+# Exibir o resultado
+print(interacoes_significativas)
+```
+
+```{r}
+# Realizar o teste de Tukey para todas as interações significativas
+tukey_result <- TukeyHSD(modelo)
+```
+
+```{r}
+for (i in 1:length(interacoes_significativas)) {
+  if (length(interacoes_significativas) == 0){
+    break
+  }
+  interacao = interacoes_significativas[i]
+  partes <- strsplit(interacao, split = ":")
+  if (nchar(interacao) < 20){
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- 0
+  }
+  else{
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- partes[[1]][3]
+  }
+  
+  if(fator1 == "INOCULO" && fator2 == "EFLUENTE" && fator3 == 0){
+    media_interacao <- aggregate(ClorfA ~ INOCULO + EFLUENTE, 
+                             data = blocos_dados_tempo_4, FUN = mean)
+    print(media_interacao)
+  }
+  
+}
+```
+
+```{r}
+for (i in 1:length(interacoes_significativas)) {
+  if (length(interacoes_significativas) == 0){
+    break
+  }
+  interacao = interacoes_significativas[i]
+  partes <- strsplit(interacao, split = ":")
+  if (nchar(interacao) < 20){
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- 0
+  }
+  else{
+    fator1 <- partes[[1]][1]
+    fator2 <- partes[[1]][2]
+    fator3 <- partes[[1]][3]
+  }
+  
+  inter_tukey = tukey_result[interacao]
+  inter_tukey = data.frame(inter_tukey)
+  colnames(inter_tukey) = c('diif','lwr','upr','p_adj')
+  inter_tukey = subset(inter_tukey, p_adj < 0.05)
+  print(inter_tukey)
+}
+```
+
+```{r}
+# Mudar nome das colunas dos dados atualizados
+blocos_dados_tempo_1$`24 E 29 DAS` = blocos_dados_tempo_1$ClorfA
+blocos_dados_tempo_1 = blocos_dados_tempo_1[-5]
+blocos_dados_tempo_2$`43 E 41 DAS` = blocos_dados_tempo_2$ClorfA
+blocos_dados_tempo_3$`52 E 54 DAS` = blocos_dados_tempo_3$ClorfA
+blocos_dados_tempo_4$`64 E 61 DAS` = blocos_dados_tempo_4$ClorfA
+blocos_dados_tempo_5$`114 DAS` = blocos_dados_tempo_5$ClorfA
+
+# Juntar dados em um mesmo dataframe
+dados_final = cbind(blocos_dados_tempo_1, blocos_dados_tempo_2["43 E 41 DAS"], 
+                    blocos_dados_tempo_3["52 E 54 DAS"],
+                    blocos_dados_tempo_4["64 E 61 DAS"],
+                    blocos_dados_tempo_5["114 DAS"])
+
+
+# Criar planilha com todos os dados atualizados
+library("xlsx")
+write.xlsx(dados_final, file = "Clorofilômetro ClorfA atualizado - Ciclo 2.xlsx",
+      sheetName = "R - ClorfA_2", append = FALSE)
+```
