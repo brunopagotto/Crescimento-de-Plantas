@@ -1,1 +1,2 @@
 # Crescimento-de-Plantas
+Esse repositório contém as análises de dados obtidos em um projeto de doutorado de Engenharia de Sistemas Agrícolas. Nos códigos, foram contruídos gráficos, obtidas as estatísticas, bem como criados modelos para determinar a influência de dois diferentes fatores nos tamanhos, concentração de nutrientes, produtividade, entre outros atributos das plantas observadas. Além disso, as amostras foram colhidas em diferentes lugares (blocos) e diferentes épocas (ciclos). Está também no repositório os PDFs gerados a partir do R Markdown.
